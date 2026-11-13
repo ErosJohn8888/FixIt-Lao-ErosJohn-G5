@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} | FixIT Repair{% endblock %}
+{% block content %}
+<div class="container">
+    <header class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+        <div>
+            <p class="text-uppercase small fw-semibold text-primary mb-2">FixIT Repair</p>
+            <h1 class="display-6 fw-semibold mb-0">{{ title }}</h1>
+        </div>
+        <a class="btn btn-primary" href="{% url add_url %}">Add new</a>
+    </header>
+
+    <form method="get" class="card campus-card mb-3">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-md">
+                    <label class="form-label" for="search">Search</label>
+                    <input class="form-control" id="search" type="search" name="q" value="{{ search_value }}" placeholder="{{ search_placeholder }}">
+                </div>
+                {% if list_kind == "repairs" %}
+                {% for field in filter_form %}
+                <div class="col-6 col-md-2">
+                    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% for error in field.errors %}<div class="small text-danger">{{ error }}</div>{% endfor %}
+                </div>
+                {% endfor %}
+                <div class="col-6 col-md-2">
+                    <label class="form-label" for="customer">Customer</label>
+                    <select class="form-select" name="customer" id="customer">
+                        <option value="">All customers</option>
+                        {% for customer in customers %}
+                        <option value="{{ customer.pk }}" {% if filters.customer == customer.pk|stringformat:"s" %}selected{% endif %}>{{ customer.full_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label" for="device">Device</label>
+                    <select class="form-select" name="device" id="device">
+                        <option value="">All devices</option>
+                        {% for device in devices %}
+                        <option value="{{ device.pk }}" {% if filters.device == device.pk|stringformat:"s" %}selected{% endif %}>{{ device.brand }} {{ device.model }} · {{ device.customer.full_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+                <div class="col-auto"><button class="btn btn-outline-primary" type="submit">Filter</button></div>
+                <div class="col-auto"><a class="btn btn-link" href="{% url list_url %}">Clear</a></div>
+            </div>
+        </div>
+    </form>
+
+    <section class="card campus-card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                {% if list_kind == "customers" %}
+                <thead class="table-light"><tr><th>Name</th><th>Phone</th><th>Email</th><th>Devices</th><th>Created</th><th></th></tr></thead>
+                <tbody>{% for item in object_list %}
+                    <tr><td class="fw-semibold">{{ item.full_name }}</td><td>{{ item.phone }}</td><td>{{ item.email|default:"-" }}</td><td>{{ item.devices.count }}</td><td>{{ item.created_at|date:"M d, Y" }}</td><td class="text-end"><a href="{% url 'customer_edit' item.pk %}">Edit</a> · <a class="text-danger" href="{% url 'customer_delete' item.pk %}">Delete</a></td></tr>
+                {% empty %}<tr><td colspan="6" class="p-4 text-secondary">No customers found.</td></tr>{% endfor %}</tbody>
+                {% elif list_kind == "devices" %}
+                <thead class="table-light"><tr><th>Device</th><th>Customer</th><th>Serial number</th><th>Repairs</th><th></th></tr></thead>
+                <tbody>{% for item in object_list %}
+                    <tr><td class="fw-semibold">{{ item.brand }} {{ item.model }} <span class="text-secondary">({{ item.device_type }})</span></td><td>{{ item.customer.full_name }}</td><td>{{ item.serial_number|default:"-" }}</td><td><a href="{% url 'repair_list' %}?device={{ item.pk }}">{{ item.repairs.count }}</a></td><td class="text-end"><a href="{% url 'device_edit' item.pk %}">Edit</a> · <a class="text-danger" href="{% url 'device_delete' item.pk %}">Delete</a></td></tr>
+                {% empty %}<tr><td colspan="5" class="p-4 text-secondary">No devices found.</td></tr>{% endfor %}</tbody>
+                {% elif list_kind == "repairs" %}
+                <thead class="table-light"><tr><th>Repair</th><th>Customer</th><th>Device</th><th>Status</th><th>Payment</th><th>Received</th><th></th></tr></thead>
+                <tbody>{% for item in object_list %}
+                    <tr><td><a class="fw-semibold" href="{% url 'repair_detail' item.pk %}">#{{ item.pk }}</a></td><td>{{ item.device.customer.full_name }}</td><td>{{ item.device.brand }} {{ item.device.model }}</td><td>{{ item.get_status_display }}</td><td>{{ item.payment_status }}</td><td>{{ item.date_received|date:"M d, Y" }}</td><td class="text-end"><a href="{% url 'repair_edit' item.pk %}">Edit</a> · <a class="text-danger" href="{% url 'repair_delete' item.pk %}">Delete</a></td></tr>
+                {% empty %}<tr><td colspan="7" class="p-4 text-secondary">No repairs found.</td></tr>{% endfor %}</tbody>
+                {% else %}
+                <thead class="table-light"><tr><th>Part</th><th>Code</th><th>Unit cost</th><th>Available</th><th></th></tr></thead>
+                <tbody>{% for item in object_list %}
+                    <tr><td class="fw-semibold">{{ item.part_name }}</td><td>{{ item.part_code }}</td><td>${{ item.unit_cost|floatformat:2 }}</td><td>{{ item.quantity_available }}</td><td class="text-end"><a href="{% url 'part_edit' item.pk %}">Edit</a> · <a class="text-danger" href="{% url 'part_delete' item.pk %}">Delete</a></td></tr>
+                {% empty %}<tr><td colspan="5" class="p-4 text-secondary">No parts found.</td></tr>{% endfor %}</tbody>
+                {% endif %}
+            </table>
+        </div>
+        {% if is_paginated %}
+        <nav class="p-3" aria-label="Page navigation">
+            {% if page_obj.has_previous %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.previous_page_number }}{% if query_params %}&{{ query_params }}{% endif %}">Previous</a>{% endif %}
+            <span class="mx-2">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+            {% if page_obj.has_next %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.next_page_number }}{% if query_params %}&{{ query_params }}{% endif %}">Next</a>{% endif %}
+        </nav>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

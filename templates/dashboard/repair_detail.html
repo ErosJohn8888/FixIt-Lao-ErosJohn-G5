@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Repair #{{ object.pk }} | FixIT Repair{% endblock %}
+{% block content %}
+<div class="container">
+    <header class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <p class="text-uppercase small fw-semibold text-primary mb-2">Repair request</p>
+            <h1 class="display-6 fw-semibold mb-1">Repair #{{ object.pk }}</h1>
+            <p class="text-secondary mb-0">{{ object.device.customer.full_name }} · {{ object.device.brand }} {{ object.device.model }}</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-primary" href="{% url 'repair_edit' object.pk %}">Edit repair</a>
+            <a class="btn btn-outline-secondary" href="{% url 'repair_list' %}">All repairs</a>
+        </div>
+    </header>
+
+    <div class="row g-3">
+        <div class="col-12 col-lg-5">
+            <section class="card campus-card h-100"><div class="card-body">
+                <h2 class="h5">Intake</h2>
+                <dl class="row mb-0">
+                    <dt class="col-sm-5">Customer</dt><dd class="col-sm-7">{{ object.device.customer.full_name }}</dd>
+                    <dt class="col-sm-5">Phone</dt><dd class="col-sm-7">{{ object.device.customer.phone }}</dd>
+                    <dt class="col-sm-5">Device</dt><dd class="col-sm-7">{{ object.device.device_type }} · {{ object.device.brand }} {{ object.device.model }}</dd>
+                    <dt class="col-sm-5">Serial</dt><dd class="col-sm-7">{{ object.device.serial_number|default:"Not provided" }}</dd>
+                    <dt class="col-sm-5">Reported issue</dt><dd class="col-sm-7">{{ object.reported_problem|linebreaksbr }}</dd>
+                    <dt class="col-sm-5">Received</dt><dd class="col-sm-7">{{ object.date_received|date:"M d, Y H:i" }}</dd>
+                    <dt class="col-sm-5">Received by</dt><dd class="col-sm-7">{{ object.received_by.get_full_name|default:object.received_by.username }}</dd>
+                    <dt class="col-sm-5">Status</dt><dd class="col-sm-7"><span class="badge text-bg-primary">{{ object.get_status_display }}</span></dd>
+                    <dt class="col-sm-5">Estimate</dt><dd class="col-sm-7">${{ object.estimated_cost|floatformat:2 }}</dd>
+                    <dt class="col-sm-5">Final cost</dt><dd class="col-sm-7">{% if object.final_cost != None %}${{ object.final_cost|floatformat:2 }}{% else %}Not set{% endif %}</dd>
+                    <dt class="col-sm-5">Payment status</dt><dd class="col-sm-7">{{ object.payment_status }} · ${{ object.total_paid|floatformat:2 }} paid</dd>
+                </dl>
+            </div></section>
+        </div>
+
+        <div class="col-12 col-lg-7">
+            <section class="card campus-card mb-3">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h2 class="h5">Diagnosis</h2>
+                        <a class="btn btn-sm btn-outline-primary" href="{% url 'diagnosis_add' object.pk %}">Add diagnosis</a>
+                    </div>
+                    {% for diagnosis in object.diagnoses.all %}
+                    <article class="border-top pt-3 mt-3">
+                        <p class="small text-secondary mb-1">{{ diagnosis.diagnosed_at|date:"M d, Y H:i" }}</p>
+                        <h3 class="h6">Findings</h3><p>{{ diagnosis.findings|linebreaksbr }}</p>
+                        <h3 class="h6">Identified issue</h3><p class="mb-1">{{ diagnosis.identified_issue|linebreaksbr }}</p>
+                        <a href="{% url 'diagnosis_edit' diagnosis.pk %}">Edit</a> ·
+                        <a class="text-danger" href="{% url 'diagnosis_delete' diagnosis.pk %}">Delete</a>
+                    </article>
+                    {% empty %}<p class="text-secondary mb-0">No diagnosis recorded.</p>{% endfor %}
+                </div>
+            </section>
+
+            <section class="card campus-card mb-3">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h2 class="h5">Repair work</h2>
+                        <a class="btn btn-sm btn-outline-primary" href="{% url 'work_add' object.pk %}">Record work</a>
+                    </div>
+                    {% for entry in object.work_entries.all %}
+                    <article class="border-top pt-3 mt-3">
+                        <p class="mb-1">{{ entry.work_performed|linebreaksbr }}</p>
+                        <p class="small text-secondary mb-1">{{ entry.work_date|date:"M d, Y H:i" }} · {{ entry.staff.get_full_name|default:entry.staff.username }}</p>
+                        <a href="{% url 'work_edit' entry.pk %}">Edit</a> ·
+                        <a class="text-danger" href="{% url 'work_delete' entry.pk %}">Delete</a>
+                    </article>
+                    {% empty %}<p class="text-secondary mb-0">No work recorded yet.</p>{% endfor %}
+                </div>
+            </section>
+
+            <section class="card campus-card mb-3">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h2 class="h5">Parts used</h2>
+                        <a class="btn btn-sm btn-outline-primary" href="{% url 'repair_part_add' object.pk %}">Add part used</a>
+                    </div>
+                    {% for usage in object.parts_used.all %}
+                    <div class="border-top pt-3 mt-3">
+                        <strong>{{ usage.part.part_name }}</strong> · {{ usage.quantity }} × ${{ usage.unit_cost_at_use|floatformat:2 }}
+                        <span class="d-block small text-secondary">{{ usage.part.part_code }}</span>
+                        <a href="{% url 'repair_part_edit' usage.pk %}">Edit</a> ·
+                        <a class="text-danger" href="{% url 'repair_part_delete' usage.pk %}">Remove</a>
+                    </div>
+                    {% empty %}<p class="text-secondary mb-0">No parts used.</p>{% endfor %}
+                </div>
+            </section>
+
+            <section class="card campus-card mb-3">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h2 class="h5">Payments</h2>
+                        <a class="btn btn-sm btn-outline-primary" href="{% url 'payment_add' object.pk %}">Record payment</a>
+                    </div>
+                    {% for payment in object.payments.all %}
+                    <div class="border-top pt-3 mt-3">
+                        <strong>${{ payment.amount|floatformat:2 }}</strong> · {{ payment.get_payment_method_display }}
+                        <span class="d-block small text-secondary">{{ payment.paid_at|date:"M d, Y H:i" }} {% if payment.reference_note %}· {{ payment.reference_note }}{% endif %}</span>
+                        <a href="{% url 'payment_edit' payment.pk %}">Edit</a> ·
+                        <a class="text-danger" href="{% url 'payment_delete' payment.pk %}">Delete</a>
+                    </div>
+                    {% empty %}<p class="text-secondary mb-0">No payments recorded.</p>{% endfor %}
+                </div>
+            </section>
+
+            <section class="card campus-card">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h2 class="h5">Pickup</h2>
+                        {% if object.status == "Ready for Pickup" and not object.pickup %}
+                        <a class="btn btn-sm btn-outline-primary" href="{% url 'pickup_add' object.pk %}">Record pickup</a>
+                        {% endif %}
+                    </div>
+                    {% if object.pickup %}
+                    <p class="mb-1">Collected by <strong>{{ object.pickup.picked_up_by }}</strong> on {{ object.pickup.pickup_date|date:"M d, Y H:i" }}</p>
+                    {% if object.pickup.notes %}<p>{{ object.pickup.notes|linebreaksbr }}</p>{% endif %}
+                    <a href="{% url 'pickup_edit' object.pickup.pk %}">Edit</a> ·
+                    <a class="text-danger" href="{% url 'pickup_delete' object.pickup.pk %}">Undo pickup</a>
+                    {% else %}<p class="text-secondary mb-0">No pickup recorded.</p>{% endif %}
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <section class="card campus-card mt-3">
+        <div class="card-body">
+            <h2 class="h5">Repair history for this device</h2>
+            <ul class="mb-0">
+            {% for previous in object.device.repairs.all %}
+                {% if previous.pk != object.pk %}
+                <li><a href="{% url 'repair_detail' previous.pk %}">Repair #{{ previous.pk }}</a> · {{ previous.get_status_display }} · {{ previous.date_received|date:"M d, Y" }}</li>
+                {% endif %}
+            {% empty %}<li>No other repairs for this device.</li>{% endfor %}
+            </ul>
+        </div>
+    </section>
+</div>
+{% endblock %}

@@ -1,47 +1,68 @@
 {% extends "base.html" %}
-{% block title %}Dashboard | CampusConnect{% endblock %}
+{% block title %}Dashboard | FixIT Repair{% endblock %}
 {% block content %}
 <div class="container">
-	<div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
-		<div>
-			<p class="text-uppercase small fw-semibold text-success mb-2">CampusConnect</p>
-			<h1 class="display-6 fw-semibold mb-1">Welcome, {{ user.first_name|default:user.username }}</h1>
-			<p class="text-secondary mb-0">Your campus profile at a glance.</p>
-		</div>
-		{% if is_admin %}
-		<a class="btn btn-success" href="{% url 'admin_panel' %}">Open admin panel</a>
-		{% endif %}
-	</div>
+    <header class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+        <div>
+            <p class="text-uppercase small fw-semibold text-primary mb-2">FixIT Repair Management</p>
+            <h1 class="display-6 fw-semibold mb-1">Welcome, {{ user.first_name|default:user.username }}</h1>
+            <p class="text-secondary mb-0">{{ user.get_role_display }} dashboard</p>
+        </div>
+        <a class="btn btn-primary" href="{% url 'repair_add' %}">New repair request</a>
+    </header>
 
-	<div class="row g-3">
-		<div class="col-12 col-md-6 col-xl-4">
-			<section class="card campus-card h-100">
-				<div class="card-body">
-					<h2 class="h6 text-secondary">Your role</h2>
-					<p class="fs-4 fw-semibold mb-0">{{ user.get_role_display }}</p>
-				</div>
-			</section>
-		</div>
-		<div class="col-12 col-md-6 col-xl-4">
-			<section class="card campus-card h-100">
-				<div class="card-body">
-					<h2 class="h6 text-secondary">Course</h2>
-					<p class="fs-4 fw-semibold mb-0">{{ user.course|default:"Not set" }}</p>
-				</div>
-			</section>
-		</div>
-		<div class="col-12 col-md-6 col-xl-4">
-			<section class="card campus-card h-100">
-				<div class="card-body">
-					<h2 class="h6 text-secondary">Community members</h2>
-					<p class="fs-4 fw-semibold mb-0">{{ member_count }}</p>
-				</div>
-			</section>
-		</div>
-	</div>
+    <section class="row g-3 mb-4" aria-label="Repair summary">
+        <div class="col-6 col-xl-3"><article class="card campus-card h-100"><div class="card-body">
+            <p class="text-secondary mb-2">All repairs</p><strong class="fs-2">{{ repair_count }}</strong>
+        </div></article></div>
+        <div class="col-6 col-xl-3"><article class="card campus-card h-100"><div class="card-body">
+            <p class="text-secondary mb-2">Pending</p><strong class="fs-2">{{ pending_count }}</strong>
+        </div></article></div>
+        <div class="col-6 col-xl-3"><article class="card campus-card h-100"><div class="card-body">
+            <p class="text-secondary mb-2">In progress</p><strong class="fs-2">{{ active_count }}</strong>
+        </div></article></div>
+        <div class="col-6 col-xl-3"><article class="card campus-card h-100"><div class="card-body">
+            <p class="text-secondary mb-2">Ready for pickup</p><strong class="fs-2">{{ ready_count }}</strong>
+        </div></article></div>
+    </section>
 
-	<p class="small text-secondary mt-4 mb-0">
-		Last login: {{ user.last_login|date:"M d, Y"|default:"First visit" }}
-	</p>
+    <div class="d-flex flex-wrap gap-2 mb-4">
+        <a class="btn btn-outline-primary" href="{% url 'customer_add' %}">Add customer</a>
+        <a class="btn btn-outline-primary" href="{% url 'device_add' %}">Register device</a>
+        <a class="btn btn-outline-secondary" href="{% url 'customer_list' %}">Browse customers</a>
+        <a class="btn btn-outline-secondary" href="{% url 'device_list' %}">Browse devices</a>
+        <a class="btn btn-outline-secondary" href="{% url 'repair_list' %}">Repair history</a>
+        <a class="btn btn-outline-secondary" href="{% url 'part_list' %}">Parts inventory</a>
+        {% if is_manager %}<a class="btn btn-outline-dark" href="{% url 'reports' %}">Reports</a>{% endif %}
+    </div>
+
+    <section class="card campus-card">
+        <div class="card-body p-0">
+            <div class="d-flex justify-content-between align-items-center gap-2 p-3 p-md-4">
+                <h2 class="h5 mb-0">Recent repair requests</h2>
+                <span class="text-secondary">Recorded payments: <strong>${{ payment_total|floatformat:2 }}</strong></span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light"><tr>
+                        <th>Repair</th><th>Customer</th><th>Device</th><th>Status</th><th>Received</th>
+                    </tr></thead>
+                    <tbody>
+                    {% for repair in recent_repairs %}
+                        <tr>
+                            <td><a href="{% url 'repair_detail' repair.pk %}">#{{ repair.pk }}</a></td>
+                            <td>{{ repair.device.customer.full_name }}</td>
+                            <td>{{ repair.device.brand }} {{ repair.device.model }}</td>
+                            <td>{{ repair.get_status_display }}</td>
+                            <td>{{ repair.date_received|date:"M d, Y" }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td class="text-secondary p-4" colspan="5">No repair requests yet.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
 </div>
 {% endblock %}

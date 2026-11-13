@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Reports | FixIT Repair{% endblock %}
+{% block content %}
+<div class="container">
+    <header class="mb-4">
+        <p class="text-uppercase small fw-semibold text-primary mb-2">Manager tools</p>
+        <h1 class="display-6 fw-semibold mb-1">Repair and payment report</h1>
+        <p class="text-secondary mb-0">Summaries are based on recorded repair costs and payments.</p>
+    </header>
+
+    <form method="get" class="card campus-card mb-4">
+        <div class="card-body">
+            <div class="row g-3 align-items-end">
+                {% for field in filter_form %}
+                <div class="col-12 col-sm-4">
+                    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% for error in field.errors %}<div class="small text-danger">{{ error }}</div>{% endfor %}
+                </div>
+                {% endfor %}
+                <div class="col-auto"><button class="btn btn-primary" type="submit">Apply filters</button></div>
+            </div>
+        </div>
+    </form>
+
+    <section class="row g-3 mb-4">
+        <div class="col-md-4"><article class="card campus-card"><div class="card-body"><p class="text-secondary mb-1">Repair requests</p><strong class="fs-2">{{ repair_count }}</strong></div></article></div>
+        <div class="col-md-4"><article class="card campus-card"><div class="card-body"><p class="text-secondary mb-1">Recorded final costs</p><strong class="fs-2">${{ final_cost_total|floatformat:2 }}</strong></div></article></div>
+        <div class="col-md-4"><article class="card campus-card"><div class="card-body"><p class="text-secondary mb-1">Payments received</p><strong class="fs-2">${{ payment_total|floatformat:2 }}</strong></div></article></div>
+    </section>
+
+    <section class="card campus-card mb-4">
+        <div class="card-body">
+            <h2 class="h5">Repairs by status</h2>
+            <div class="d-flex flex-wrap gap-3">
+                {% for row in status_totals %}<span class="badge text-bg-light border">{{ row.status }}: {{ row.total }}</span>{% empty %}
+                <span class="text-secondary">No repairs match these filters.</span>{% endfor %}
+            </div>
+        </div>
+    </section>
+
+    <section class="card campus-card">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light"><tr><th>Repair</th><th>Customer</th><th>Device</th><th>Status</th><th>Received</th><th>Final cost</th></tr></thead>
+                <tbody>
+                {% for repair in repairs %}
+                    <tr><td><a href="{% url 'repair_detail' repair.pk %}">#{{ repair.pk }}</a></td><td>{{ repair.device.customer.full_name }}</td><td>{{ repair.device.brand }} {{ repair.device.model }}</td><td>{{ repair.get_status_display }}</td><td>{{ repair.date_received|date:"M d, Y" }}</td><td>{% if repair.final_cost != None %}${{ repair.final_cost|floatformat:2 }}{% else %}-{% endif %}</td></tr>
+                {% empty %}<tr><td colspan="6" class="p-4 text-secondary">No repairs match these filters.</td></tr>{% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if repair_count > 100 %}<p class="small text-secondary p-3 mb-0">Showing the latest 100 matching repairs.</p>{% endif %}
+    </section>
+</div>
+{% endblock %}

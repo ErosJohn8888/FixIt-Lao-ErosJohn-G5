@@ -1,40 +1,70 @@
-# CSIT327-G5-Lao-ErosJohn-FirstDjango
+# FixIT Repair Management System
 
-## Student Information
+FixIT is a Django application for tracking customers, devices, repair requests,
+diagnoses, work performed, inventory, payments, and device pickups. It uses
+PostgreSQL for application data.
 
-- **Full name:** Eros John Lao
-- **Section:** G5
+## Requirements
 
-## Run Locally
+- Python 3.12 or later
+- PostgreSQL 15 or later
 
-1. Clone the repository and enter the project folder:
+## Connect to Supabase (PowerShell)
 
-   ```powershell
-   git clone https://github.com/ErosJohn8888/CSIT327-section-Lao-ErosJohn-FirstDjango.git
-   cd CSIT327-section-Lao-ErosJohn-FirstDjango
-   ```
+1. In Supabase, open your project and find its **Postgres connection string**
+   (URI) in the project connection settings. Copy the URI connection string,
+   not the `/rest/v1/` URL or an anon/service-role API key. Use the Supabase
+   session pooler URI if direct connections are unavailable from your network.
+   Keep the database password private and do not paste it into source files,
+   chat, or commits.
 
-2. Create and activate a virtual environment:
+2. Create and activate a Python environment, then install dependencies:
 
    ```powershell
    python -m venv .venv
    .\.venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
    ```
 
-3. Install dependencies and initialize the database:
+3. In the VS Code PowerShell terminal, set `DATABASE_URL` to the connection
+   string you copied. This environment variable applies to this terminal
+   session and is not saved in the project:
 
    ```powershell
-   pip install -r requirements.txt
-   python manage.py migrate
+   $env:DATABASE_URL = "paste-your-supabase-postgres-uri-here"
    ```
 
-4. Start the development server:
+   Django requires SSL for this connection unless the URI explicitly specifies
+   an `sslmode`.
+
+4. Create the tables and a manager account:
+
+   ```powershell
+   python manage.py migrate
+   python manage.py createsuperuser
+   ```
+
+   Public registration creates Staff accounts. A superuser can promote other
+   accounts to Manager in Django admin.
+
+5. Start the server and open <http://127.0.0.1:8080/>:
 
    ```powershell
    python manage.py runserver 127.0.0.1:8080
    ```
 
-5. Open <http://127.0.0.1:8080/> in a browser.
+Sign in using the account's email address and password. Managers can open the
+repair/payment report; staff can manage the repair workflow and inventory.
 
-The checked-in Django secret key fallback is for local development only. Set
-`DJANGO_SECRET_KEY` to a private value when deploying the project.
+## Tests
+
+Production settings always use PostgreSQL. To run the automated test suite
+without a local PostgreSQL service, use the test-only SQLite settings:
+
+```powershell
+python manage.py test --settings=campusconnect.test_settings
+```
+
+For PostgreSQL-backed tests, run `python manage.py test` with the database
+environment configured and a PostgreSQL test database user that can create
+databases.

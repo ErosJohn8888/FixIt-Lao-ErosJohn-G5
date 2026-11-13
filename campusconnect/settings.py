@@ -12,6 +12,9 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 import os
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlparse
+
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,16 +23,28 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
-# Use DJANGO_SECRET_KEY for deployments; the fallback is development-only.
+DEBUG = os.environ.get("DJANGO_DEBUG", "true").lower() == "true"
+
+# The fallback is only for local development; production requires an env secret.
 SECRET_KEY = os.environ.get(
     "DJANGO_SECRET_KEY",
     "django-insecure-local-development-only",
 )
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+if not DEBUG and "DJANGO_SECRET_KEY" not in os.environ:
+    raise ImproperlyConfigured(
+        "Set DJANGO_SECRET_KEY to a private value when DEBUG is disabled."
+    )
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get(
+        "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1"
+    ).split(",")
+    if host.strip()
+]
+if DEBUG:
+    ALLOWED_HOSTS.append("testserver")
 
 
 # Application definition
@@ -78,12 +93,50 @@ WSGI_APPLICATION = 'campusconnect.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+database_url = os.environ.get("DATABASE_URL")
+if database_url:
+    parsed_database_url = urlparse(database_url)
+    if (
+        parsed_database_url.scheme not in {"postgres", "postgresql"}
+        or not parsed_database_url.hostname
+        or not parsed_database_url.path.strip("/")
+    ):
+        raise ImproperlyConfigured(
+            "DATABASE_URL must be a PostgreSQL connection URI from Supabase."
+        )
+
+    try:
+        database_port = parsed_database_url.port or 5432
+    except ValueError as exc:
+        raise ImproperlyConfigured(
+            "DATABASE_URL contains an invalid PostgreSQL port."
+        ) from exc
+
+    database_options = parse_qs(parsed_database_url.query)
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": unquote(parsed_database_url.path.lstrip("/")),
+            "USER": unquote(parsed_database_url.username or ""),
+            "PASSWORD": unquote(parsed_database_url.password or ""),
+            "HOST": parsed_database_url.hostname,
+            "PORT": database_port,
+            "OPTIONS": {
+                "sslmode": database_options.get("sslmode", ["require"])[0],
+            },
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("POSTGRES_DB", "fixit"),
+        "USER": os.environ.get("POSTGRES_USER", "postgres"),
+        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
+        "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
+        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+        }
+    }
 
 
 # Password validation
@@ -127,11 +180,25 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
 MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
-    },
+    "default": {
+        "BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+        "HOST": os.environ.get("EMAIL_HOST", "localhost"),
+        "PORT": int(os.environ.get("EMAIL_PORT", "25")),
+        "USERNAME": os.environ.get("EMAIL_HOST_USER", ""),
+        "PASSWORD": os.environ.get("EMAIL_HOST_PASSWORD", ""),
+        "USE_TLS": os.environ.get("EMAIL_USE_TLS", "false").lower() == "true",
+    }
 }
 
 AUTH_USER_MODEL = 'accounts.CustomUser'
+AUTHENTICATION_BACKENDS = ["accounts.backends.EmailBackend"]
 LOGIN_REDIRECT_URL = 'dashboard'
 LOGOUT_REDIRECT_URL = 'login'
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True

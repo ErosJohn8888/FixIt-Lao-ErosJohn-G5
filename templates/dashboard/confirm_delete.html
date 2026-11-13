@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Delete record | FixIT Repair{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-8 col-lg-6">
+            <section class="card campus-card">
+                <div class="card-body p-4">
+                    <h1 class="h3">Delete record?</h1>
+                    <p>Are you sure you want to delete <strong>{{ object }}</strong>? This action cannot be undone.</p>
+                    <form method="post">
+                        {% csrf_token %}
+                        <button class="btn btn-danger" type="submit">Delete</button>
+                        <a class="btn btn-outline-secondary" href="{{ cancel_url|default:'/' }}">Cancel</a>
+                    </form>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+{% endblock %}
