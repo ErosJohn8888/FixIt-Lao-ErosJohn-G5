@@ -20,6 +20,19 @@ from django.core.exceptions import ImproperlyConfigured
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+# Load KEY=value lines from a .env file next to manage.py (if present), so
+# DATABASE_URL does not have to be set in every new terminal. Real environment
+# variables always win over the file. .env is already in .gitignore.
+_env_file = BASE_DIR / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text(encoding="utf-8-sig").splitlines():
+        _line = _line.strip()
+        if not _line or _line.startswith("#") or "=" not in _line:
+            continue
+        _key, _value = _line.split("=", 1)
+        os.environ.setdefault(_key.strip(), _value.strip().strip("\"'"))
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
@@ -55,9 +68,9 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    'django.contrib.staticfiles',
     "accounts",
-    "dashboard"
+    "dashboard",
+    'django.contrib.staticfiles',
 ]
 
 MIDDLEWARE = [
@@ -92,9 +105,22 @@ WSGI_APPLICATION = 'campusconnect.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
+#
+# Which database is used (first match wins):
+#   1. DATABASE_URL set        -> PostgreSQL (Supabase). Use the *Session pooler*
+#                                 URI if your network has no IPv6 support.
+#   2. POSTGRES_HOST set       -> local/other PostgreSQL via POSTGRES_* variables
+#   3. nothing set (default)   -> local SQLite file (db.sqlite3), so the project
+#                                 runs out of the box with no database server.
+# Set USE_SQLITE=true to force SQLite even if the variables above are set.
 
+# Seconds to wait for PostgreSQL before giving up (prevents silent hangs).
+DB_CONNECT_TIMEOUT = int(os.environ.get("DB_CONNECT_TIMEOUT", "10"))
+
+use_sqlite = os.environ.get("USE_SQLITE", "false").lower() == "true"
 database_url = os.environ.get("DATABASE_URL")
-if database_url:
+
+if not use_sqlite and database_url:
     parsed_database_url = urlparse(database_url)
     if (
         parsed_database_url.scheme not in {"postgres", "postgresql"}
@@ -123,18 +149,37 @@ if database_url:
             "PORT": database_port,
             "OPTIONS": {
                 "sslmode": database_options.get("sslmode", ["require"])[0],
+                "connect_timeout": DB_CONNECT_TIMEOUT,
+            },
+        }
+    }
+elif not use_sqlite and os.environ.get("POSTGRES_HOST"):
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("POSTGRES_DB", "fixit"),
+            "USER": os.environ.get("POSTGRES_USER", "postgres"),
+            "PASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
+            "HOST": os.environ["POSTGRES_HOST"],
+            "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+            "OPTIONS": {
+                "connect_timeout": DB_CONNECT_TIMEOUT,
             },
         }
     }
 else:
+    if not use_sqlite:
+        import warnings
+
+        warnings.warn(
+            "DATABASE_URL is not set -> using local SQLite (db.sqlite3). "
+            "New accounts will NOT be saved to Supabase.",
+            stacklevel=1,
+        )
     DATABASES = {
-        'default': {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ.get("POSTGRES_DB", "fixit"),
-        "USER": os.environ.get("POSTGRES_USER", "postgres"),
-        "PASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
-        "HOST": os.environ.get("POSTGRES_HOST", "localhost"),
-        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
         }
     }
 
