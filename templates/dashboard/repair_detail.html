@@ -127,7 +127,7 @@
         <div class="card-body">
             <h2 class="h5">Repair history for this device</h2>
             <ul class="mb-0">
-            {% for previous in object.device.repairs.all %}
+            {% for previous in device_repairs %}
                 {% if previous.pk != object.pk %}
                 <li><a href="{% url 'repair_detail' previous.pk %}">Repair #{{ previous.pk }}</a> · {{ previous.get_status_display }} · {{ previous.date_received|date:"M d, Y" }}</li>
                 {% endif %}

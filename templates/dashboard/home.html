@@ -13,7 +13,7 @@
 
     <section class="row g-3 mb-4" aria-label="Repair summary">
         <div class="col-6 col-xl-3"><article class="card campus-card h-100"><div class="card-body">
-            <p class="text-secondary mb-2">All repairs</p><strong class="fs-2">{{ repair_count }}</strong>
+            <p class="text-secondary mb-2">{% if is_manager %}All repairs{% else %}My repairs{% endif %}</p><strong class="fs-2">{{ repair_count }}</strong>
         </div></article></div>
         <div class="col-6 col-xl-3"><article class="card campus-card h-100"><div class="card-body">
             <p class="text-secondary mb-2">Pending</p><strong class="fs-2">{{ pending_count }}</strong>
@@ -40,7 +40,7 @@
         <div class="card-body p-0">
             <div class="d-flex justify-content-between align-items-center gap-2 p-3 p-md-4">
                 <h2 class="h5 mb-0">Recent repair requests</h2>
-                <span class="text-secondary">Recorded payments: <strong>${{ payment_total|floatformat:2 }}</strong></span>
+                <span class="text-secondary">Payments for visible repairs: <strong>${{ payment_total|floatformat:2 }}</strong></span>
             </div>
             <div class="table-responsive">
                 <table class="table table-hover align-middle mb-0">

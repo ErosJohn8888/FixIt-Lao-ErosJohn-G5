@@ -8,6 +8,7 @@ from accounts.models import CustomUser
 from .models import (
     Customer,
     Device,
+    Diagnosis,
     Part,
     Payment,
     RepairRequest,
@@ -30,6 +31,11 @@ class RepairWorkflowTests(TestCase):
             password=PASSWORD,
             role=CustomUser.Role.MANAGER,
         )
+        self.other_staff = CustomUser.objects.create_user(
+            username="otherstaff",
+            email="otherstaff@example.com",
+            password=PASSWORD,
+        )
         self.customer = Customer.objects.create(
             full_name="Alex Customer",
             phone="555-0123",
@@ -49,6 +55,13 @@ class RepairWorkflowTests(TestCase):
             estimated_cost=Decimal("100.00"),
             final_cost=Decimal("100.00"),
         )
+        self.other_repair = RepairRequest.objects.create(
+            device=self.device,
+            received_by=self.other_staff,
+            reported_problem="Button is broken",
+            estimated_cost=Decimal("20.00"),
+            final_cost=Decimal("20.00"),
+        )
         self.part = Part.objects.create(
             part_name="Display",
             part_code="DISP-1",
@@ -62,6 +75,8 @@ class RepairWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "FixIT Repair Management")
         self.assertContains(response, "Alex Customer")
+        self.assertEqual(response.context["repair_count"], 1)
+        self.assertNotContains(response, "Button is broken")
 
         self.client.logout()
         response = self.client.get(reverse("customer_list"))
@@ -120,6 +135,72 @@ class RepairWorkflowTests(TestCase):
         )
         self.assertContains(response, "Alex Customer")
         self.assertContains(response, f"#{self.repair.pk}")
+
+    def test_staff_can_only_read_and_change_their_own_repairs(self):
+        response = self.client.get(reverse("repair_list"))
+        self.assertContains(response, f"#{self.repair.pk}")
+        self.assertNotContains(response, f"#{self.other_repair.pk}")
+        device_response = self.client.get(reverse("device_list"))
+        listed_device = next(
+            item
+            for item in device_response.context["object_list"]
+            if item.pk == self.device.pk
+        )
+        self.assertEqual(listed_device.repair_count, 1)
+        self.assertEqual(
+            self.client.get(
+                reverse("repair_detail", args=[self.other_repair.pk])
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(
+                reverse("repair_edit", args=[self.other_repair.pk])
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(
+                reverse("repair_delete", args=[self.other_repair.pk])
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(
+                reverse("payment_add", args=[self.other_repair.pk])
+            ).status_code,
+            404,
+        )
+
+        diagnosis = Diagnosis.objects.create(
+            repair=self.other_repair,
+            findings="Button sticks",
+            identified_issue="Damaged button",
+        )
+        self.assertEqual(
+            self.client.get(
+                reverse("diagnosis_edit", args=[diagnosis.pk])
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.get(
+                reverse("diagnosis_delete", args=[diagnosis.pk])
+            ).status_code,
+            404,
+        )
+
+    def test_manager_can_view_repairs_created_by_other_staff(self):
+        self.client.force_login(self.manager)
+
+        response = self.client.get(reverse("repair_list"))
+        self.assertContains(response, f"#{self.repair.pk}")
+        self.assertContains(response, f"#{self.other_repair.pk}")
+        detail_response = self.client.get(
+            reverse("repair_detail", args=[self.other_repair.pk])
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_response.context["device_repairs"].count(), 2)
 
     def test_diagnosis_and_work_are_recorded_in_repair_history(self):
         response = self.client.post(
