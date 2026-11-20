@@ -45,16 +45,24 @@ from .models import (
 )
 
 
+def is_manager(user):
+    return user.is_superuser or user.role == CustomUser.Role.MANAGER
+
+
+def visible_repairs_for(user):
+    repairs = RepairRequest.objects.all()
+    if is_manager(user):
+        return repairs
+    return repairs.filter(received_by=user)
+
+
 class StaffRequiredMixin(LoginRequiredMixin):
     login_url = "login"
 
 
 class ManagerRequiredMixin(StaffRequiredMixin, UserPassesTestMixin):
     def test_func(self):
-        return (
-            self.request.user.role == CustomUser.Role.MANAGER
-            or self.request.user.is_superuser
-        )
+        return is_manager(self.request.user)
 
 
 class DashboardView(StaffRequiredMixin, TemplateView):
@@ -62,7 +70,7 @@ class DashboardView(StaffRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        repairs = RepairRequest.objects.all()
+        repairs = visible_repairs_for(self.request.user)
         context["repair_count"] = repairs.count()
         context["pending_count"] = repairs.filter(
             status=RepairRequest.Status.PENDING
@@ -80,13 +88,12 @@ class DashboardView(StaffRequiredMixin, TemplateView):
             "device__customer", "received_by"
         )[:8]
         context["payment_total"] = (
-            Payment.objects.aggregate(total=Sum("amount"))["total"]
+            Payment.objects.filter(repair__in=repairs).aggregate(
+                total=Sum("amount")
+            )["total"]
             or Decimal("0.00")
         )
-        context["is_manager"] = (
-            self.request.user.role == CustomUser.Role.MANAGER
-            or self.request.user.is_superuser
-        )
+        context["is_manager"] = is_manager(self.request.user)
         return context
 
 
@@ -179,7 +186,20 @@ class DeviceListView(RecordListView):
     )
 
     def get_queryset(self):
-        return super().get_queryset().select_related("customer")
+        queryset = super().get_queryset().select_related("customer")
+        if is_manager(self.request.user):
+            queryset = queryset.annotate(
+                repair_count=Count("repairs", distinct=True)
+            )
+        else:
+            queryset = queryset.annotate(
+                repair_count=Count(
+                    "repairs",
+                    filter=Q(repairs__received_by=self.request.user),
+                    distinct=True,
+                )
+            )
+        return queryset.order_by("brand", "model", "pk")
 
 
 class DeviceCreateView(StaffRequiredMixin, CreateView):
@@ -230,9 +250,10 @@ class RepairListView(RecordListView):
     search_placeholder = "Customer, device, serial number, or issue"
 
     def get_queryset(self):
-        queryset = super().get_queryset().select_related(
-            "device__customer", "received_by"
-        )
+        queryset = super().get_queryset()
+        if not is_manager(self.request.user):
+            queryset = queryset.filter(received_by=self.request.user)
+        queryset = queryset.select_related("device__customer", "received_by")
         filter_form = RepairFilterForm(self.request.GET)
         if filter_form.is_valid():
             status = filter_form.cleaned_data["status"]
@@ -292,6 +313,9 @@ class RepairUpdateView(StaffRequiredMixin, UpdateView):
         "title": "Edit repair request",
         "cancel_url": reverse_lazy("repair_list"),
     }
+
+    def get_queryset(self):
+        return visible_repairs_for(self.request.user)
 
     def form_valid(self, form):
         with transaction.atomic():
@@ -358,6 +382,20 @@ class RepairDetailView(StaffRequiredMixin, DetailView):
         "diagnoses", "work_entries__staff", "parts_used__part", "payments"
     )
 
+    def get_queryset(self):
+        return visible_repairs_for(self.request.user).select_related(
+            "device__customer", "received_by"
+        ).prefetch_related(
+            "diagnoses", "work_entries__staff", "parts_used__part", "payments"
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["device_repairs"] = visible_repairs_for(
+            self.request.user
+        ).filter(device_id=self.object.device_id)
+        return context
+
 
 class RepairChildCreateView(StaffRequiredMixin, CreateView):
     template_name = "dashboard/record_form.html"
@@ -365,7 +403,8 @@ class RepairChildCreateView(StaffRequiredMixin, CreateView):
 
     def get_repair(self):
         return get_object_or_404(
-            RepairRequest, pk=self.kwargs[self.repair_id_url_kwarg]
+            visible_repairs_for(self.request.user),
+            pk=self.kwargs[self.repair_id_url_kwarg],
         )
 
     def get_context_data(self, **kwargs):
@@ -503,6 +542,12 @@ class PickupCreateView(RepairChildCreateView):
 class RelatedUpdateView(StaffRequiredMixin, UpdateView):
     template_name = "dashboard/record_form.html"
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if is_manager(self.request.user):
+            return queryset
+        return queryset.filter(repair__received_by=self.request.user)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["title"] = self.title
@@ -639,6 +684,9 @@ class RepairDeleteView(SafeDeleteView):
     model = RepairRequest
     success_url = reverse_lazy("repair_list")
 
+    def get_queryset(self):
+        return visible_repairs_for(self.request.user)
+
     def form_valid(self, form):
         if (
             self.object.diagnoses.exists()
@@ -661,6 +709,12 @@ class PartDeleteView(SafeDeleteView):
 
 
 class RelatedDeleteView(SafeDeleteView):
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if is_manager(self.request.user):
+            return queryset
+        return queryset.filter(repair__received_by=self.request.user)
+
     def get_success_url(self):
         return reverse(
             "repair_detail", kwargs={"pk": self.object.repair_id}

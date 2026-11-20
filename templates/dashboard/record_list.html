@@ -61,7 +61,7 @@
                 {% elif list_kind == "devices" %}
                 <thead class="table-light"><tr><th>Device</th><th>Customer</th><th>Serial number</th><th>Repairs</th><th></th></tr></thead>
                 <tbody>{% for item in object_list %}
-                    <tr><td class="fw-semibold">{{ item.brand }} {{ item.model }} <span class="text-secondary">({{ item.device_type }})</span></td><td>{{ item.customer.full_name }}</td><td>{{ item.serial_number|default:"-" }}</td><td><a href="{% url 'repair_list' %}?device={{ item.pk }}">{{ item.repairs.count }}</a></td><td class="text-end"><a href="{% url 'device_edit' item.pk %}">Edit</a> · <a class="text-danger" href="{% url 'device_delete' item.pk %}">Delete</a></td></tr>
+                    <tr><td class="fw-semibold">{{ item.brand }} {{ item.model }} <span class="text-secondary">({{ item.device_type }})</span></td><td>{{ item.customer.full_name }}</td><td>{{ item.serial_number|default:"-" }}</td><td><a href="{% url 'repair_list' %}?device={{ item.pk }}">{{ item.repair_count }}</a></td><td class="text-end"><a href="{% url 'device_edit' item.pk %}">Edit</a> · <a class="text-danger" href="{% url 'device_delete' item.pk %}">Delete</a></td></tr>
                 {% empty %}<tr><td colspan="5" class="p-4 text-secondary">No devices found.</td></tr>{% endfor %}</tbody>
                 {% elif list_kind == "repairs" %}
                 <thead class="table-light"><tr><th>Repair</th><th>Customer</th><th>Device</th><th>Status</th><th>Payment</th><th>Received</th><th></th></tr></thead>
