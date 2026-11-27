@@ -3,6 +3,8 @@ from decimal import Decimal
 from django import forms
 from django.core.exceptions import ValidationError
 
+from accounts.validators import validate_phone
+
 from .models import (
     Customer,
     Device,
@@ -33,6 +35,15 @@ class CustomerForm(StyledModelForm):
         fields = ["full_name", "phone", "email", "address"]
         widgets = {"address": forms.Textarea(attrs={"rows": 3})}
 
+    def clean_full_name(self):
+        name = self.cleaned_data["full_name"].strip()
+        if len(name) < 2:
+            raise ValidationError("Enter the customer's full name.")
+        return name
+
+    def clean_phone(self):
+        return validate_phone(self.cleaned_data["phone"])
+
 
 class DeviceForm(StyledModelForm):
     class Meta:
@@ -45,12 +56,29 @@ class DeviceForm(StyledModelForm):
             "serial_number",
         ]
 
+    def clean_serial_number(self):
+        serial = (self.cleaned_data.get("serial_number") or "").strip()
+        if not serial:
+            return None
+        duplicates = Device.objects.filter(serial_number__iexact=serial)
+        if self.instance.pk:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise ValidationError("Device with this Serial number already exists.")
+        return serial
+
 
 class RepairRequestForm(StyledModelForm):
     class Meta:
         model = RepairRequest
         fields = ["device", "reported_problem", "status", "estimated_cost", "final_cost"]
         widgets = {"reported_problem": forms.Textarea(attrs={"rows": 4})}
+
+    def clean_reported_problem(self):
+        problem = self.cleaned_data["reported_problem"].strip()
+        if len(problem) < 5:
+            raise ValidationError("Describe the problem in at least 5 characters.")
+        return problem
 
     def clean_final_cost(self):
         final_cost = self.cleaned_data["final_cost"]
@@ -71,12 +99,16 @@ class RepairRequestForm(StyledModelForm):
                     "Record at least one repair work entry before marking this "
                     "repair ready for pickup."
                 )
-        if status == RepairRequest.Status.COMPLETED:
-            has_pickup = self.instance.pk and hasattr(self.instance, "pickup")
-            if not has_pickup:
-                raise ValidationError(
-                    "Use the pickup action to complete and release this repair."
-                )
+        has_pickup = bool(self.instance.pk and hasattr(self.instance, "pickup"))
+        if status == RepairRequest.Status.COMPLETED and not has_pickup:
+            raise ValidationError(
+                "Use the pickup action to complete and release this repair."
+            )
+        if has_pickup and status != RepairRequest.Status.COMPLETED:
+            raise ValidationError(
+                "This repair was already released. Undo the pickup first to "
+                "change its status."
+            )
         return status
 
 
@@ -84,6 +116,15 @@ class PartForm(StyledModelForm):
     class Meta:
         model = Part
         fields = ["part_name", "part_code", "unit_cost", "quantity_available"]
+
+    def clean_part_code(self):
+        code = self.cleaned_data["part_code"].strip().upper()
+        duplicates = Part.objects.filter(part_code__iexact=code)
+        if self.instance.pk:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise ValidationError("A part with this code already exists.")
+        return code
 
 
 class DiagnosisForm(StyledModelForm):
@@ -153,6 +194,12 @@ class PickupForm(StyledModelForm):
         model = Pickup
         fields = ["picked_up_by", "notes"]
         widgets = {"notes": forms.Textarea(attrs={"rows": 3})}
+
+    def clean_picked_up_by(self):
+        name = self.cleaned_data["picked_up_by"].strip()
+        if len(name) < 2:
+            raise ValidationError("Enter the name of the person collecting the device.")
+        return name
 
 
 class RepairFilterForm(forms.Form):

@@ -104,6 +104,11 @@ class RepairRequest(models.Model):
 
     @property
     def total_paid(self):
+        # Use prefetched payments when a list page already loaded them,
+        # so the list does not run one extra query per row.
+        prefetched = getattr(self, "_prefetched_objects_cache", {}).get("payments")
+        if prefetched is not None:
+            return sum((p.amount for p in prefetched), Decimal("0.00"))
         return self.payments.aggregate(total=Sum("amount"))["total"] or Decimal(
             "0.00"
         )
@@ -256,5 +261,3 @@ class Pickup(models.Model):
 
     def __str__(self):
         return f"Pickup for repair #{self.repair_id}"
-
-# Create your models here.

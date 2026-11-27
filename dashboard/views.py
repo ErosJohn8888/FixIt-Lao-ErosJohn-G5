@@ -56,8 +56,54 @@ def visible_repairs_for(user):
     return repairs.filter(received_by=user)
 
 
+MAX_DB_INT = 2_147_483_647
+
+
+def safe_int(value):
+    """Return value as a positive int, or None if it is missing/invalid/too big.
+
+    Used for ?customer= and ?device= filters so odd input never causes a 500.
+    """
+    value = (value or "").strip()
+    if value.isascii() and value.isdigit():
+        number = int(value)
+        if 0 < number <= MAX_DB_INT:
+            return number
+    return None
+
+
 class StaffRequiredMixin(LoginRequiredMixin):
     login_url = "login"
+
+
+class RepairAccessMixin:
+    """Runs in dispatch(), so it protects GET and POST alike.
+
+    1. Ownership: get_locked_repair() raises 404 when the repair does not exist
+       or belongs to another staff member, before any form is shown or saved.
+    2. Locking: views with block_if_completed = True cannot change a repair that
+       is already Completed.
+    """
+
+    block_if_completed = False
+
+    def get_locked_repair(self):
+        raise NotImplementedError
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated:
+            repair = self.get_locked_repair()
+            if (
+                self.block_if_completed
+                and repair.status == RepairRequest.Status.COMPLETED
+            ):
+                messages.error(
+                    request,
+                    "This repair is completed and locked. Undo the pickup "
+                    "first if it needs to change.",
+                )
+                return redirect("repair_detail", pk=repair.pk)
+        return super().dispatch(request, *args, **kwargs)
 
 
 class ManagerRequiredMixin(StaffRequiredMixin, UserPassesTestMixin):
@@ -138,6 +184,9 @@ class CustomerListView(RecordListView):
     add_url = "customer_add"
     list_url = "customer_list"
     search_fields = ("full_name", "phone", "email")
+
+    def get_queryset(self):
+        return super().get_queryset().annotate(device_count=Count("devices"))
 
 
 class CustomerCreateView(StaffRequiredMixin, CreateView):
@@ -253,7 +302,9 @@ class RepairListView(RecordListView):
         queryset = super().get_queryset()
         if not is_manager(self.request.user):
             queryset = queryset.filter(received_by=self.request.user)
-        queryset = queryset.select_related("device__customer", "received_by")
+        queryset = queryset.select_related(
+            "device__customer", "received_by"
+        ).prefetch_related("payments")
         filter_form = RepairFilterForm(self.request.GET)
         if filter_form.is_valid():
             status = filter_form.cleaned_data["status"]
@@ -265,11 +316,11 @@ class RepairListView(RecordListView):
                 queryset = queryset.filter(date_received__date__gte=start)
             if end:
                 queryset = queryset.filter(date_received__date__lte=end)
-        customer_id = self.request.GET.get("customer", "")
-        if customer_id.isdigit():
+        customer_id = safe_int(self.request.GET.get("customer"))
+        if customer_id:
             queryset = queryset.filter(device__customer_id=customer_id)
-        device_id = self.request.GET.get("device", "")
-        if device_id.isdigit():
+        device_id = safe_int(self.request.GET.get("device"))
+        if device_id:
             queryset = queryset.filter(device_id=device_id)
         return queryset
 
@@ -281,9 +332,10 @@ class RepairListView(RecordListView):
             "brand", "model"
         )
         context["filters"] = {
-            "customer": self.request.GET.get("customer", ""),
-            "device": self.request.GET.get("device", ""),
+            "customer": str(safe_int(self.request.GET.get("customer")) or ""),
+            "device": str(safe_int(self.request.GET.get("device")) or ""),
         }
+        context["only_own_repairs"] = not is_manager(self.request.user)
         return context
 
 
@@ -397,15 +449,21 @@ class RepairDetailView(StaffRequiredMixin, DetailView):
         return context
 
 
-class RepairChildCreateView(StaffRequiredMixin, CreateView):
+class RepairChildCreateView(RepairAccessMixin, StaffRequiredMixin, CreateView):
     template_name = "dashboard/record_form.html"
     repair_id_url_kwarg = "repair_id"
 
     def get_repair(self):
-        return get_object_or_404(
-            visible_repairs_for(self.request.user),
-            pk=self.kwargs[self.repair_id_url_kwarg],
-        )
+        # 404 for a missing repair OR a repair that belongs to another staff
+        # member. Cached so the lookup happens once per request.
+        if not hasattr(self, "_repair"):
+            self._repair = get_object_or_404(
+                visible_repairs_for(self.request.user),
+                pk=self.kwargs[self.repair_id_url_kwarg],
+            )
+        return self._repair
+
+    get_locked_repair = get_repair
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -425,6 +483,7 @@ class DiagnosisCreateView(RepairChildCreateView):
     model = Diagnosis
     form_class = DiagnosisForm
     title = "Add diagnosis"
+    block_if_completed = True
 
     def form_valid(self, form):
         form.instance.repair = self.get_repair()
@@ -436,6 +495,7 @@ class RepairDetailCreateView(RepairChildCreateView):
     model = RepairDetail
     form_class = RepairDetailForm
     title = "Record repair work"
+    block_if_completed = True
 
     def form_valid(self, form):
         form.instance.repair = self.get_repair()
@@ -480,6 +540,7 @@ class RepairPartCreateView(RepairChildCreateView):
     model = RepairPart
     form_class = RepairPartForm
     title = "Record part usage"
+    block_if_completed = True
 
     def form_valid(self, form):
         try:
@@ -539,8 +600,11 @@ class PickupCreateView(RepairChildCreateView):
         return response
 
 
-class RelatedUpdateView(StaffRequiredMixin, UpdateView):
+class RelatedUpdateView(RepairAccessMixin, StaffRequiredMixin, UpdateView):
     template_name = "dashboard/record_form.html"
+
+    def get_locked_repair(self):
+        return self.get_object().repair
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -566,12 +630,14 @@ class DiagnosisUpdateView(RelatedUpdateView):
     model = Diagnosis
     form_class = DiagnosisForm
     title = "Edit diagnosis"
+    block_if_completed = True
 
 
 class RepairDetailUpdateView(RelatedUpdateView):
     model = RepairDetail
     form_class = RepairDetailForm
     title = "Edit repair work"
+    block_if_completed = True
 
 
 class PaymentUpdateView(RelatedUpdateView):
@@ -607,6 +673,7 @@ class RepairPartUpdateView(RelatedUpdateView):
     model = RepairPart
     form_class = RepairPartForm
     title = "Edit part usage"
+    block_if_completed = True
 
     def form_valid(self, form):
         try:
@@ -618,6 +685,17 @@ class RepairPartUpdateView(RelatedUpdateView):
                 new_part = Part.objects.select_for_update().get(
                     pk=form.cleaned_data["part"].pk
                 )
+                if (
+                    RepairPart.objects.filter(
+                        repair_id=usage.repair_id, part=new_part
+                    )
+                    .exclude(pk=usage.pk)
+                    .exists()
+                ):
+                    form.add_error(
+                        "part", "This part is already listed for this repair."
+                    )
+                    return self.form_invalid(form)
                 available = new_part.quantity_available
                 if new_part.pk == old_part.pk:
                     available += usage.quantity
@@ -648,8 +726,13 @@ class PickupUpdateView(RelatedUpdateView):
 
 
 class SafeDeleteView(StaffRequiredMixin, DeleteView):
+    """Delete pages: GET only shows the confirmation page; deleting needs POST."""
+
     template_name = "dashboard/confirm_delete.html"
     success_message = "Record deleted."
+    protected_message = (
+        "This record is used by other records and cannot be deleted."
+    )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -661,10 +744,7 @@ class SafeDeleteView(StaffRequiredMixin, DeleteView):
         try:
             self.object.delete()
         except ProtectedError:
-            messages.error(
-                self.request,
-                "This record has related devices or repair history and cannot be deleted.",
-            )
+            messages.error(self.request, self.protected_message)
             return redirect(success_url)
         messages.success(self.request, self.success_message)
         return redirect(success_url)
@@ -673,16 +753,26 @@ class SafeDeleteView(StaffRequiredMixin, DeleteView):
 class CustomerDeleteView(SafeDeleteView):
     model = Customer
     success_url = reverse_lazy("customer_list")
+    success_message = "Customer deleted."
+    protected_message = (
+        "This customer has related devices or repair history and cannot be "
+        "deleted. Delete or reassign their devices and repair records first."
+    )
 
 
 class DeviceDeleteView(SafeDeleteView):
     model = Device
     success_url = reverse_lazy("device_list")
+    success_message = "Device deleted."
+    protected_message = (
+        "This device has repair history and cannot be deleted."
+    )
 
 
 class RepairDeleteView(SafeDeleteView):
     model = RepairRequest
     success_url = reverse_lazy("repair_list")
+    success_message = "Repair request deleted."
 
     def get_queryset(self):
         return visible_repairs_for(self.request.user)
@@ -706,9 +796,16 @@ class RepairDeleteView(SafeDeleteView):
 class PartDeleteView(SafeDeleteView):
     model = Part
     success_url = reverse_lazy("part_list")
+    success_message = "Part deleted from inventory."
+    protected_message = (
+        "This part has been used in repairs and cannot be deleted."
+    )
 
 
-class RelatedDeleteView(SafeDeleteView):
+class RelatedDeleteView(RepairAccessMixin, SafeDeleteView):
+    def get_locked_repair(self):
+        return self.get_object().repair
+
     def get_queryset(self):
         queryset = super().get_queryset()
         if is_manager(self.request.user):
@@ -723,14 +820,33 @@ class RelatedDeleteView(SafeDeleteView):
 
 class DiagnosisDeleteView(RelatedDeleteView):
     model = Diagnosis
+    block_if_completed = True
+    success_message = "Diagnosis deleted."
 
 
 class RepairDetailDeleteView(RelatedDeleteView):
     model = RepairDetail
+    block_if_completed = True
+    success_message = "Repair work entry deleted."
+
+    def form_valid(self, form):
+        repair = self.object.repair
+        if (
+            repair.status == RepairRequest.Status.READY
+            and repair.work_entries.count() <= 1
+        ):
+            messages.error(
+                self.request,
+                "A repair that is Ready for Pickup must keep at least one "
+                "work entry. Change its status first.",
+            )
+            return redirect(self.get_success_url())
+        return super().form_valid(form)
 
 
 class RepairPartDeleteView(RelatedDeleteView):
     model = RepairPart
+    block_if_completed = True
     success_message = "Part usage removed and inventory restored."
 
     def form_valid(self, form):
@@ -744,17 +860,20 @@ class RepairPartDeleteView(RelatedDeleteView):
 
 class PaymentDeleteView(RelatedDeleteView):
     model = Payment
+    success_message = "Payment deleted."
 
 
 class PickupDeleteView(RelatedDeleteView):
     model = Pickup
+    success_message = "Pickup record removed; repair is ready again."
 
     def form_valid(self, form):
-        repair = self.object.repair
-        repair.status = RepairRequest.Status.READY
-        repair.save(update_fields=["status"])
-        messages.success(self.request, "Pickup record removed; repair is ready again.")
-        return super().form_valid(form)
+        # Both steps succeed together or neither is saved.
+        with transaction.atomic():
+            repair = self.object.repair
+            repair.status = RepairRequest.Status.READY
+            repair.save(update_fields=["status"])
+            return super().form_valid(form)
 
 
 class ReportView(ManagerRequiredMixin, TemplateView):
