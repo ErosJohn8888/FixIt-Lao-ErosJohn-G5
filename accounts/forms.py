@@ -6,6 +6,7 @@ from django.contrib.auth.forms import (
 )
 from django.core.exceptions import ValidationError
 from .models import CustomUser
+from .validators import validate_phone
 
 
 class BootstrapFormMixin:
@@ -27,6 +28,9 @@ class BootstrapFormMixin:
         if users_with_email.exists():
             raise ValidationError("An account with this email already exists.")
         return email
+
+    def clean_phone(self):
+        return validate_phone(self.cleaned_data.get("phone", ""))
 
 
 class CustomUserCreationForm(BootstrapFormMixin, UserCreationForm):

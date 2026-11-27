@@ -13,6 +13,7 @@ from .models import CustomUser
 
 class SignUpView(SuccessMessageMixin, CreateView):
     form_class = CustomUserCreationForm
+    # Role is never taken from the form: new accounts are always Staff.
     template_name = "registration/signup.html"
     success_url = reverse_lazy("login")
     success_message = "Your staff account has been created. Please log in."
@@ -20,6 +21,7 @@ class SignUpView(SuccessMessageMixin, CreateView):
 
 class CampusLoginView(LoginView):
     template_name = "registration/login.html"
+    redirect_authenticated_user = True
 
     def form_valid(self, form):
         messages.success(self.request, "You are now logged in.")
